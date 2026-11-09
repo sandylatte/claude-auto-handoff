@@ -79,39 +79,8 @@ const when = (iso?: string) => {
 const tokens = (t?: string) => (t && Number(t) ? ` · ${Math.round(Number(t) / 1000)}k` : '')
 const chip = (id: string, current: boolean) => `<span class="chip${current ? ' on' : ''}" title="${esc(id)}">${esc(short(id))}</span>`
 
-/** The page for one brief. chain is every brief in its chain, oldest first (the brief itself included). */
-export function renderPage(entry: Entry, chain: readonly Entry[]): string {
-  const { header } = entry
-  // Previous and next are the neighbours in the chain, not the header's from/to: a header can
-  // miss a link the chain recovered. The last brief's session has no page until it hands off.
-  const at = chain.findIndex(e => e.id === entry.id)
-  const prev = chain[at - 1]
-  const next = at >= 0 ? chain[at + 1] : undefined
-  const meta = [
-    chip(entry.id, false),
-    `<span>${esc(when(header.at))}${esc(tokens(header.tokens))}</span>`,
-    header.cwd ? `<span>${esc(header.cwd)}</span>` : '',
-    prev ? `<a href="${esc(prev.id)}.html">← previous</a>` : '',
-    next ? `<a href="${esc(next.id)}.html">next →</a>`
-      : header.to ? `<span title="${esc(header.to)}">next: ${esc(short(header.to))}, still running</span>` : '',
-  ].filter(Boolean).join('')
-  const rows = chain.length > 1 ? chain.map((e, i) => {
-    const current = e.id === entry.id
-    const c = current ? chip(e.id, true) : `<a href="${esc(e.id)}.html">${chip(e.id, false)}</a>`
-    const latest = i === chain.length - 1 ? '<span class="latest">latest</span>' : ''
-    const wip = oneLiner(e.body)
-    return `<div class="row"><div>${c}</div><div class="rowtext"><div><span class="when">${i + 1}. ${esc(when(e.header.at))}${esc(tokens(e.header.tokens))}</span>${latest}</div>${wip ? `<div class="wip">${esc(wip)}</div>` : ''}</div></div>`
-  }).join('') : ''
-  const history = rows ? `<div class="section"><h2>Handoff Chain</h2>${rows}</div>` : ''
-  // JSON in a script tag: escape "<" so a brief can never close the tag.
-  const data = JSON.stringify(sections(entry.body)).replace(/</g, '\\u003c')
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Session Context ${esc(short(entry.id))}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+// Fonts, the markdown renderer and the styles of the brief page.
+const HEAD = `<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&family=Fraunces:opsz,wght@9..144,400;9..144,700;9..144,900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
@@ -149,7 +118,42 @@ export function renderPage(entry: Entry, chain: readonly Entry[]): string {
   a { color: var(--blue); text-underline-offset: 2px; } a:hover { color: var(--red); }
   strong { font-weight: 600; }
 </style>
-</head>
+`
+
+/** The page for one brief. chain is every brief in its chain, oldest first (the brief itself included). */
+export function renderPage(entry: Entry, chain: readonly Entry[]): string {
+  const { header } = entry
+  // Previous and next are the neighbours in the chain, not the header's from/to: a header can
+  // miss a link the chain recovered. The last brief's session has no page until it hands off.
+  const at = chain.findIndex(e => e.id === entry.id)
+  const prev = chain[at - 1]
+  const next = at >= 0 ? chain[at + 1] : undefined
+  const meta = [
+    chip(entry.id, false),
+    `<span>${esc(when(header.at))}${esc(tokens(header.tokens))}</span>`,
+    header.cwd ? `<span>${esc(header.cwd)}</span>` : '',
+    `<a href="${esc(chatPage(entry.id))}">read the old chat</a>`,
+    prev ? `<a href="${esc(prev.id)}.html">← previous</a>` : '',
+    next ? `<a href="${esc(next.id)}.html">next →</a>`
+      : header.to ? `<span title="${esc(header.to)}">next: ${esc(short(header.to))}, still running</span>` : '',
+  ].filter(Boolean).join('')
+  const rows = chain.length > 1 ? chain.map((e, i) => {
+    const current = e.id === entry.id
+    const c = current ? chip(e.id, true) : `<a href="${esc(e.id)}.html">${chip(e.id, false)}</a>`
+    const latest = i === chain.length - 1 ? '<span class="latest">latest</span>' : ''
+    const wip = oneLiner(e.body)
+    return `<div class="row"><div>${c}</div><div class="rowtext"><div><span class="when">${i + 1}. ${esc(when(e.header.at))}${esc(tokens(e.header.tokens))}</span>${latest}</div>${wip ? `<div class="wip">${esc(wip)}</div>` : ''}</div></div>`
+  }).join('') : ''
+  const history = rows ? `<div class="section"><h2>Handoff Chain</h2>${rows}</div>` : ''
+  // JSON in a script tag: escape "<" so a brief can never close the tag.
+  const data = JSON.stringify(sections(entry.body)).replace(/</g, '\\u003c')
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Session Context ${esc(short(entry.id))}</title>
+${HEAD}</head>
 <body>
 <div class="card">
   <div class="header"><h1>↕ Session Context</h1><div class="meta">${meta}</div></div>
@@ -166,6 +170,109 @@ export function renderPage(entry: Entry, chain: readonly Entry[]): string {
     else { var pre = document.createElement('pre'); pre.textContent = md; div.appendChild(pre); }
     out.appendChild(div);
   });
+</script>
+</body>
+</html>
+`
+}
+
+// Modelled on the Claude chat itself: cream page, your messages in a bubble on the right,
+// Claude's replies as plain serif text on the left, light and dark.
+const CHAT_STYLE = `<style>
+  :root { color-scheme: light dark; --bg: #FAF9F5; --ink: #141413; --muted: #73726C; --bubble: #F0EEE6; --line: rgba(31,30,29,0.12); --code: rgba(31,30,29,0.06); --accent: #C96442;
+    --serif: ui-serif, Georgia, Cambria, 'Times New Roman', serif; --sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #262624; --ink: #F5F4EE; --muted: #A6A39A; --bubble: #141413; --line: rgba(245,244,238,0.12); --code: rgba(245,244,238,0.08); --accent: #D97757; } }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  .card { max-width: 768px; margin: 0 auto; padding: 0 16px 64px; }
+  .top { position: sticky; top: 0; background: var(--bg); display: flex; justify-content: space-between; gap: 12px; padding: 14px 0; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--line); z-index: 1; }
+  .top a { color: var(--muted); text-decoration: none; } .top a:hover { color: var(--ink); }
+  #chat { display: flex; flex-direction: column; gap: 24px; padding-top: 28px; }
+  .msg { overflow-wrap: break-word; line-height: 1.65; }
+  .msg.you { align-self: flex-end; max-width: 85%; background: var(--bubble); border-radius: 18px; padding: 10px 16px; font-size: 15.5px; }
+  .plain { white-space: pre-wrap; }
+  .msg.claude { font-family: var(--serif); font-size: 16.5px; }
+  .msg p, .msg ul, .msg ol, .msg pre, .msg table, .msg blockquote { margin: 0 0 12px; } .msg > div > :last-child { margin-bottom: 0; }
+  .msg ul, .msg ol { padding-left: 22px; } .msg li { margin-bottom: 4px; }
+  .msg h1, .msg h2, .msg h3 { font-size: 1.05em; font-weight: 600; margin: 18px 0 8px; }
+  .msg a { color: inherit; text-underline-offset: 3px; }
+  .msg code { font-family: var(--mono); font-size: 0.85em; background: var(--code); padding: 1px 5px; border-radius: 4px; word-break: break-word; }
+  .msg pre { font-family: var(--mono); font-size: 13px; background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; white-space: pre-wrap; }
+  .msg pre code { background: none; padding: 0; }
+  .msg table { border-collapse: collapse; font-family: var(--sans); font-size: 14px; } .msg th, .msg td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+  .msg blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--muted); }
+  details { font-family: var(--sans); margin-bottom: 10px; }
+  summary.tool { display: inline-block; cursor: pointer; list-style: none; font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
+  summary.tool::before { content: '▸ '; } details[open] summary.tool::before { content: '▾ '; }
+  div.tool { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 2px 0 2px 12px; }
+  #jump { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); font: 500 13px var(--sans); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
+  #jump:hover { background: var(--bubble); }
+  #jump[hidden] { display: none; }
+  details > div.tool:first-of-type { margin-top: 6px; }
+</style>
+`
+
+// "chat-" first: the server's short link picks the first page starting with the session id.
+export const chatPage = (sessionId: string) => `chat-${sessionId}.html`
+
+export type Turn = { who: 'you' | 'claude'; text: string; tools: string[] }
+
+/** The whole chat a session had before it handed off, in order, so nothing is lost to the brief. */
+export function renderChat(sessionId: string, turns: readonly Turn[], briefPage: string): string {
+  // One block per speaker in a row: each tool step arrives as its own message.
+  const merged: Turn[] = []
+  for (const t of turns) {
+    const last = merged[merged.length - 1]
+    if (last && last.who === t.who) merged[merged.length - 1] = { who: t.who, text: [last.text, t.text].filter(Boolean).join('\n\n'), tools: [...last.tools, ...t.tools] }
+    else merged.push({ ...t, tools: [...t.tools] })
+  }
+  const data = JSON.stringify(merged).replace(/</g, '\\u003c')
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Old Chat ${esc(short(sessionId))}</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+${CHAT_STYLE}</head>
+<body>
+<div class="card">
+  <div class="top"><span>Old chat · ${esc(short(sessionId))} · ${merged.length} messages</span><a href="${esc(briefPage)}">handoff notes →</a></div>
+  <div id="chat"></div>
+</div>
+<button id="jump" hidden aria-label="Jump to the latest message">↓ Latest</button>
+<script id="data" type="application/json">${data}</script>
+<script>
+  var turns = JSON.parse(document.getElementById('data').textContent), out = document.getElementById('chat');
+  turns.forEach(function (t) {
+    var div = document.createElement('div');
+    div.className = t.who === 'you' ? 'msg you' : 'msg claude';
+    if (t.text) {
+      var body = document.createElement('div');
+      // Your messages stay as typed, like the chat shows them; Claude's replies are markdown.
+      if (t.who === 'you') { body.className = 'plain'; body.textContent = t.text; }
+      else if (window.marked && window.DOMPurify) body.innerHTML = DOMPurify.sanitize(marked.parse(t.text));
+      else { var pre = document.createElement('pre'); pre.textContent = t.text; body.appendChild(pre); }
+      div.appendChild(body);
+    }
+    if (t.tools.length) {
+      var steps = document.createElement('details'), sum = document.createElement('summary');
+      sum.className = 'tool'; sum.textContent = t.tools.length + (t.tools.length === 1 ? ' step' : ' steps');
+      steps.appendChild(sum);
+      t.tools.forEach(function (x) { var d = document.createElement('div'); d.className = 'tool'; d.textContent = x; steps.appendChild(d); });
+      div.insertBefore(steps, div.firstChild);
+    }
+    out.appendChild(div);
+  });
+  // Open at the latest message; the button comes back whenever you scroll up.
+  var jump = document.getElementById('jump');
+  function nearEnd() { return window.innerHeight + window.scrollY >= document.body.scrollHeight - 200; }
+  function sync() { jump.hidden = nearEnd(); }
+  jump.onclick = function () { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); };
+  window.addEventListener('scroll', sync, { passive: true });
+  window.scrollTo(0, document.body.scrollHeight);
+  sync();
 </script>
 </body>
 </html>

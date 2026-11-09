@@ -21,6 +21,12 @@
       "description": "Handoffs allowed before you type a prompt. Past this the mod pauses until you send one.",
       "default": 2
     },
+    "confirm": {
+      "type": "boolean",
+      "title": "Ask before handing off",
+      "description": "At the threshold, show Hand off now / Not now in the panel instead of handing off straight away. Not now keeps this session going; auto-compact may then take over.",
+      "default": false
+    },
     "briefTemplate": {
       "type": "string",
       "title": "Brief template file",

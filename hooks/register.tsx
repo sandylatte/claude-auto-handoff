@@ -1,6 +1,6 @@
 import type { EngineInterface, Register, Timer } from 'claude-code'
-import { assembleBrief, briefPrompt, extractFacts, isValidBrief, markUnverifiedFigures } from './brief.ts'
-import { chainOf, parseBrief, renderPage, viewerLink, withHeader } from './viewer.ts'
+import { assembleBrief, briefPrompt, userText, extractFacts, isValidBrief, markUnverifiedFigures } from './brief.ts'
+import { chainOf, chatPage, parseBrief, renderChat, renderPage, viewerLink, withHeader } from './viewer.ts'
 import type { Entry } from './viewer.ts'
 import { SERVER_JS, parseAddress } from './server.ts'
 import { isSpinning, panelTree } from './panel.tsx'
@@ -33,6 +33,11 @@ let seededSession: string | undefined
 let floor: number | undefined
 let unattended = 0 // handoffs since the user last typed a prompt
 let pausedSession: string | undefined
+// The session the confirm panel is asking about, and the one whose handoff was approved.
+let asking: string | undefined
+let approved: string | undefined
+// Per session, the tenth of the window (0-9) it was at when the person last pressed Not now.
+const declined = new Map<string, number>()
 // The handoff the fresh session came from, until its first request is measured and shown on the panel.
 let handedFrom: { session: string; tokens: number; link: string; problem?: string } | undefined
 // The seeded session's place in its chain of handoffs, for its own brief's header. Also kept in
@@ -236,6 +241,17 @@ async function handoff($: EngineInterface, sessionId: string, tokens: number, th
     const chain = own?.chain ?? sessionId
     const header = { from: own?.from, chain, depth: depth !== undefined ? String(depth) : undefined, tokens: String(tokens), at: new Date().toISOString(), cwd }
     await $.fs.write(briefPath, withHeader(header, brief))
+    // The whole old chat as a readable page beside the brief's. A failure here never stops the handoff.
+    try {
+      const turns = messages.flatMap((m) => {
+        const tools = m.toolUses.map((t) => `${t.tool} ${String(t.input.command ?? t.input.file_path ?? t.input.pattern ?? t.input.skill ?? '').split('\n')[0]!.slice(0, 160)}`.trim())
+        const text = m.role === 'user' ? userText(m) : m.text.trim()
+        return text || tools.length ? [{ who: m.role === 'user' ? 'you' as const : 'claude' as const, text: text ?? '', tools }] : []
+      })
+      await $.fs.write(`${pagesDir}/${chatPage(sessionId)}`, renderChat(sessionId, turns, `${sessionId}.html`))
+    } catch (err) {
+      await log($, `chat page error session=${sessionId} ${String(err)}`)
+    }
     const link = await viewer($, briefDir, pagesDir, sessionId)
     pending = { oldSession: sessionId, briefPath, tokens, chain, link, problem }
     steps($, [briefStep(problem), { mark: 'spin', text: 'clearing' }])
@@ -281,6 +297,51 @@ async function tryHandoff($: EngineInterface, sessionId: string, tokens: number,
     }
     return false
   }
+
+  // Ask first. Until the person presses a button the session carries on as it is, and the tool
+  // gate stays open (canHandOff). "Not now" marks the session fired, so it is not asked again.
+  // Ask first. Until the person presses a button the session carries on as it is, and the tool
+  // gate stays open (canHandOff). After "Not now" it asks again at each new tenth of the window,
+  // every turn from 90%, and hands off without asking at 100% or when the engine would compact.
+  if (cfg.confirm && approved !== sessionId) {
+    const window = (await $.session.usage()).context.window
+    const pct = window ? Math.floor((tokens / window) * 100) : 0
+    const forced = via === 'session.compact' || pct >= 100
+    if (!forced) {
+      if (asking === sessionId) return false
+      const last = declined.get(sessionId)
+      const tenth = Math.floor(pct / 10)
+      if (last !== undefined && tenth <= last && !(pct >= 90 && via.startsWith('turn.complete'))) return false
+      asking = sessionId
+      await log($, `asking session=${sessionId} tokens=${tokens} window=${window} pct=${pct} via=${via}`)
+      const size = window ? `${k(tokens)} of ${k(window)} (${pct}%)` : k(tokens)
+      showPanel($, {
+        header: { mark: 'warn', text: `auto-handoff · context ${size}: hand off to a fresh session?` },
+        steps: pct >= 90 ? [{ mark: 'warn', text: 'at 100% it hands off by itself' }] : [],
+        sticky: true,
+        actions: [
+          { label: 'Hand off now', onPress: () => {
+            approved = sessionId
+            asking = undefined
+            hidePanel($)
+            void (async () => {
+              const now = ((await $.session.usage()).context.tokens ?? tokens) + unmeasured
+              await tryHandoff($, sessionId, now, await thresholdFor($, sessionId), 'confirmed')
+            })().catch((err) => log($, `confirmed handoff error ${String(err)}`))
+          } },
+          { label: 'Not now', onPress: () => {
+            asking = undefined
+            declined.set(sessionId, tenth)
+            hidePanel($)
+            void log($, `declined session=${sessionId} pct=${pct}`)
+          } },
+        ],
+      }, `context ${size}: hand off? answer in the panel${pct >= 90 ? '; at 100% it hands off by itself' : ''}`)
+      return false
+    }
+    asking = undefined
+    await log($, `forced session=${sessionId} pct=${pct} via=${via}`)
+  }
   unattended++
 
   inFlight = true
@@ -307,6 +368,7 @@ async function paneVar($: EngineInterface): Promise<string | undefined> {
 // Whether tryHandoff would go ahead for this session. The tool gate refuses calls only then,
 // so a session the mod will not hand off (pane, loop guard, already fired) is never blocked.
 async function canHandOff($: EngineInterface, sessionId: string): Promise<boolean> {
+  if (cfg.confirm && approved !== sessionId) return false
   if (unattended >= cfg.maxUnattended || await paneVar($)) return false
   const fired = await $.store.get(`fired:${sessionId}`)
   return !fired || fired === 'briefing'

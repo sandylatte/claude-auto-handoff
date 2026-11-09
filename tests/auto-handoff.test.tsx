@@ -192,7 +192,8 @@ describe('auto-handoff', () => {
     await $.turn.complete(TURN)
     await settle(() => calls.cleared > 0)
     expect(calls.completes).toBe(1)
-    expect(files(calls.written)).toEqual(['/home/test/.claude/state/auto-handoff/old-session.md', '/home/test/.claude/state/auto-handoff/pages/old-session.html'])
+    expect(files(calls.written)).toEqual(['/home/test/.claude/state/auto-handoff/old-session.md', '/home/test/.claude/state/auto-handoff/pages/chat-old-session.html', '/home/test/.claude/state/auto-handoff/pages/old-session.html'])
+    expect(calls.written['/home/test/.claude/state/auto-handoff/pages/old-session.html']).toContain('chat-old-session.html')
     expect(calls.written['/home/test/.claude/state/auto-handoff/old-session.md']).toContain('Finish the parser refactor')
     // The log is how a failed handoff gets diagnosed: it must name the threshold and the brief.
     const log = calls.written['/home/test/.claude/state/auto-handoff/auto-handoff.log'] ?? ''
@@ -288,7 +289,60 @@ describe('auto-handoff', () => {
     expect(calls.cleared).toBe(1)
   })
 
-  test('AUTO_HANDOFF_TOKENS overrides the threshold field', { options: { threshold: 100_000 } }, async ($, on) => {
+  test('with confirm on, the panel asks and nothing clears until Hand off now', { options: { confirm: true } }, async ($, on) => {
+    const calls = engine(on, { tokens: 165_000 })
+    await $.turn.complete(TURN)
+    await settle(() => false)
+    expect(calls.cleared).toBe(0)
+    expect((await $.tool.call({ tool: 'Read', file_path: '/a.txt' })).deny).toBeUndefined() // the gate stays open while asking
+    const ui = await mountBand($)
+    expect(textOf(await ui.drawn())).toContain('hand off to a fresh session?')
+    await ui.press({ key: 'Hand off now' })
+    await settle(() => calls.cleared > 0)
+    expect(calls.cleared).toBe(1)
+    await ui.unmount()
+  })
+
+  test('with confirm on, Not now asks again at the next tenth, every turn from 90%, and hands off at 100%', { options: { confirm: true } }, async ($, on) => {
+    const calls = engine(on, { tokens: 165_000 }) // window 200k: 82%
+    await $.turn.complete(TURN)
+    const ui = await mountBand($)
+    await ui.press({ key: 'Not now' })
+    expect(textOf(await ui.drawn())).toBe('')
+    calls.tokens = 175_000 // 87%: same tenth, no new question
+    await $.turn.complete(TURN)
+    await settle(() => false)
+    expect(textOf(await ui.drawn())).toBe('')
+    calls.tokens = 182_000 // 91%
+    await $.turn.complete(TURN)
+    await settle(() => false)
+    expect(textOf(await ui.drawn())).toContain('(91%)')
+    expect(textOf(await ui.drawn())).toContain('at 100% it hands off by itself')
+    await ui.press({ key: 'Not now' })
+    await $.turn.complete(TURN) // from 90% it asks every turn
+    await settle(() => false)
+    expect(textOf(await ui.drawn())).toContain('hand off to a fresh session?')
+    expect(calls.cleared).toBe(0)
+    await ui.press({ key: 'Not now' })
+    calls.tokens = 200_000
+    await $.turn.complete(TURN)
+    await settle(() => calls.cleared > 0)
+    expect(calls.cleared).toBe(1)
+    await ui.unmount()
+  })
+
+  test('with confirm on, an auto-compact after Not now becomes a handoff', { options: { confirm: true } }, async ($, on) => {
+    const calls = engine(on, { tokens: 165_000 })
+    await $.turn.complete(TURN)
+    const ui = await mountBand($)
+    await ui.press({ key: 'Not now' })
+    await ui.unmount()
+    await $.session.compact({ trigger: 'auto' })
+    await settle(() => calls.cleared > 0)
+    expect(calls.cleared).toBe(1)
+  })
+
+  test('AUTO_HANDOFF_TOKENS overrides the threshold field',{ options: { threshold: 100_000 } }, async ($, on) => {
     const calls = engine(on, { tokens: 120_000, env: { AUTO_HANDOFF_TOKENS: '150000' } })
     await $.turn.complete(TURN)
     await settle(() => false)

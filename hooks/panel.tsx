@@ -7,7 +7,9 @@ export type Mark = 'spin' | 'done' | 'warn' | 'fail'
 export type Line = { mark: Mark; text: string }
 // sticky: stays until dismissed (a failure, the pause, a warning); otherwise a panel with nothing
 // spinning collapses on its own.
-export type Panel = { header: Line; steps: Line[]; link?: string; sticky?: boolean }
+// actions: buttons drawn in place of Dismiss, for a panel that asks a question.
+export type Action = { label: string; onPress: () => void }
+export type Panel = { header: Line; steps: Line[]; link?: string; sticky?: boolean; actions?: Action[] }
 
 export const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const GLYPH: Record<Exclude<Mark, 'spin'>, string> = { done: '✓', warn: '⚠', fail: '✗' }
@@ -39,7 +41,9 @@ export function panelTree({ Box, Text, Markdown, Button }: Elements, p: Panel, f
         </Box>
       ))}
       {p.link ? <Markdown text={`  [open brief](${p.link})`} /> : null}
-      {p.sticky ? <Button key="dismiss" label="Dismiss" onPress={onDismiss} /> : null}
+      {p.actions
+        ? <Box>{p.actions.map((a) => <Button key={a.label} label={a.label} onPress={a.onPress} />)}</Box>
+        : p.sticky ? <Button key="dismiss" label="Dismiss" onPress={onDismiss} /> : null}
     </Box>
   )
 }
