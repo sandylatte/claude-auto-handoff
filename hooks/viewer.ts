@@ -121,7 +121,7 @@ const HEAD = `<link rel="preconnect" href="https://fonts.googleapis.com">
 `
 
 /** The page for one brief. chain is every brief in its chain, oldest first (the brief itself included). */
-export function renderPage(entry: Entry, chain: readonly Entry[]): string {
+export function renderPage(entry: Entry, chain: readonly Entry[], hasChat = true): string {
   const { header } = entry
   // Previous and next are the neighbours in the chain, not the header's from/to: a header can
   // miss a link the chain recovered. The last brief's session has no page until it hands off.
@@ -132,7 +132,7 @@ export function renderPage(entry: Entry, chain: readonly Entry[]): string {
     chip(entry.id, false),
     `<span>${esc(when(header.at))}${esc(tokens(header.tokens))}</span>`,
     header.cwd ? `<span>${esc(header.cwd)}</span>` : '',
-    `<a href="${esc(chatPage(entry.id))}">read the old chat</a>`,
+    hasChat ? `<a href="${esc(chatPage(entry.id))}">read the old chat</a>` : '',
     prev ? `<a href="${esc(prev.id)}.html">← previous</a>` : '',
     next ? `<a href="${esc(next.id)}.html">next →</a>`
       : header.to ? `<span title="${esc(header.to)}">next: ${esc(short(header.to))}, still running</span>` : '',

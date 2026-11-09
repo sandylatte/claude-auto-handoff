@@ -53,6 +53,8 @@ Test it.`
     expect(page).toContain('href="aaaaaaaa-1.html"')
     expect(page).toContain('Handoff Chain')
     expect(page).not.toContain('</script><b>')
+    expect(page).toContain('read the old chat')
+    expect(renderPage(b, [a, b], false)).not.toContain('read the old chat')
   })
 
   test('previous and next follow the chain, even where a header lost its from', () => {

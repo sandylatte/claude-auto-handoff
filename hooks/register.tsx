@@ -172,7 +172,9 @@ async function writeChainPages($: EngineInterface, briefDir: string, pagesDir: s
     } catch {}
   }
   const chain = chainOf(all, sessionId)
-  for (const e of chain) await $.fs.write(`${pagesDir}/${e.id}.html`, renderPage(e, chain))
+  // Briefs older than the chat page, or whose chat page failed, get no dead link.
+  const pages = new Set((await $.fs.list(pagesDir).catch(() => [])).map(f => f.name))
+  for (const e of chain) await $.fs.write(`${pagesDir}/${e.id}.html`, renderPage(e, chain, pages.has(chatPage(e.id))))
 }
 
 // Writes the pages for sessionId's chain and makes sure the server is up. Returns the page's
